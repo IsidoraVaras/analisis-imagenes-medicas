@@ -1,26 +1,19 @@
 import streamlit as st
-from PIL import Image
-from ultralytics import YOLO
-import numpy as np
-import io
-from torchvision import models, transforms
-import torch
-import torch.nn.functional as F
-import requests
-import clip
+from PIL import Image           # Abrir y manipular imagenes
+from ultralytics import YOLO    # Utilizar modelo de YOLO
+import io                       # Manejar archivos de memoria
+import torch                    # Trabajar con tensores y modelo CLIP
+import clip                     # Modelo CLIP para verificacion de imagenes
 
-# ------------------------------
-# CONFIGURACIÓN GENERAL DE LA PÁGINA
-# ------------------------------
+# CONFIGURACIÓN DE LA PÁGINA
+
 st.set_page_config(
     page_title="MediScan AI - Análisis Médico",
-    page_icon="🧠",
     layout="centered"
 )
 
-# ------------------------------
 # ESTILOS PERSONALIZADOS CON CSS 
-# ------------------------------
+
 st.markdown("""
     <style>
         .stApp {
@@ -65,7 +58,7 @@ st.markdown("""
             border-radius: 5px;
         }
         [data-testid="stAlert"] {
-            display: block; 
+            display: block;
         }
         [data-testid="stImage"] {
             max-width: 65%;
@@ -97,7 +90,8 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Cargar modelo CLIP una sola vez
+# CARGAR MODELO CLIP
+
 @st.cache_resource
 def load_clip_model():
     model, preprocess = clip.load("ViT-B/32", device="cpu")
@@ -105,106 +99,84 @@ def load_clip_model():
 
 clip_model, clip_preprocess = load_clip_model()
 
+# FUNCION PARA DETERMINAR SI ES ECOGRAFIA
+
 def is_ultrasound_image(image: Image.Image) -> bool:
-    # Convertir a RGB siempre
     if image.mode != "RGB":
         image = image.convert("RGB")
-
-    # Preprocesar imagen
     image_input = clip_preprocess(image).unsqueeze(0)
-
-    # Definir los textos para comparar
     text_prompts = [
-        "an ultrasound image",
-        "a liver ultrasound",
-        "a medical scan",
-        "a radiology image",
-        "a cat",
-        "a person",
-        "a dog",
-        "a landscape",
-        "a normal photo"
+        "an ultrasound image", "a liver ultrasound", "a medical scan", "a radiology image",
+        "a cat", "a person", "a dog", "a landscape", "a normal photo"
     ]
-
     text_tokens = clip.tokenize(text_prompts)
-
     with torch.no_grad():
         image_features = clip_model.encode_image(image_input)
         text_features = clip_model.encode_text(text_tokens)
-
-        # Calcular similitud entre la imagen y cada texto
         similarities = (image_features @ text_features.T).softmax(dim=-1)
         best_match = torch.argmax(similarities, dim=-1).item()
-
-    # Si la imagen se parece más a los primeros 4 prompts (ecografía, scan, etc.)
     return best_match in [0, 1, 2, 3]
 
-# ------------------------------
 # CARGAR MODELO YOLO
-# ------------------------------
+
 @st.cache_resource
 def load_model():
     try:
-        model_loaded = YOLO("best.pt")
-        return model_loaded
+        return YOLO("best.pt")
     except Exception as e:
         st.error(f"Error al cargar el modelo 'best.pt'. Detalle: {e}")
         return None
 
 model = load_model()
-if model:
-    class_names = model.names
-else:
-    class_names = {0: 'F0', 1: 'F1', 2: 'F2', 3: 'F3', 4: 'F4'}
+class_names = model.names if model else {0: 'F0', 1: 'F1', 2: 'F2', 3: 'F3', 4: 'F4'}
 
-# ------------------------------
 # INTERFAZ PRINCIPAL
-# ------------------------------
+
 col1, col2, col3 = st.columns([1,2,1])
 with col2:
-    st.markdown('<p style="text-align:center;"><img src="https://raw.githubusercontent.com/streamlit/streamlit/develop/docs/static/logo_icon_dark.svg" width="50"></p>', unsafe_allow_html=True)
     st.markdown("<h1>MediScan AI</h1>", unsafe_allow_html=True)
     st.markdown("<p>Plataforma Avanzada de Análisis de Imágenes Médicas</p>", unsafe_allow_html=True)
-st.markdown("---")
 
-st.markdown('<p style="font-size: 1.5em; font-weight: 600; text-align: center; color: #343a40;">Cargar Imagen Médica</p>', unsafe_allow_html=True)
+st.markdown("---")
+st.markdown('<p style="font-size: 1.5em; font-weight: 600; text-align: center;">Cargar Imagen Médica</p>', unsafe_allow_html=True)
 st.markdown('<p style="text-align: center; color: #6c757d;">Arrastra y suelta tu imagen aquí, o haz clic para buscar</p>', unsafe_allow_html=True)
 
-uploaded_file = st.file_uploader("", type=["jpg", "jpeg", "png"], key="medical_image_uploader")
-st.markdown('<p style="text-align: center; color: #ADB5BD;">Formatos compatibles: JPG, PNG</p>', unsafe_allow_html=True)
+uploaded_file = st.file_uploader("", type=["jpg", "jpeg", "png"])
 
-if uploaded_file is not None:
-    image = Image.open(io.BytesIO(uploaded_file.getvalue()))
-    st.image(image, use_container_width=True)
+if uploaded_file:
+    image = Image.open(io.BytesIO(uploaded_file.getvalue()))   # Abrir imagen en memoria
+    image_placeholder = st.empty()                             # Placeholder para ocultar imagen
+    image_placeholder.image(image, use_container_width=True)   # Mostrar imagen
 
     if st.button('Analizar imagen', type="primary", use_container_width=True):
+        image_placeholder.empty()  # Ocultar imagen al analizar
         with st.spinner('Analizando la imagen...'):
-            
-            # 🔍 Verificar si parece ecografía médica antes de usar YOLO
-            if not is_ultrasound_image(image):
-                st.warning("⚠️ La imagen no parece ser una ecografía médica. Por favor sube una imagen médica válida.")
+            if not is_ultrasound_image(image):   #Verificar que sea ecografia
+                st.warning("La imagen no parece ser una ecografía médica. Por favor sube una imagen válida.")
                 st.stop()
-            
-            if model is None:
-                st.error("No se puede realizar el análisis: El modelo YOLO no se cargó correctamente.")
+            if not model:  # Verificar que YOLO este cargado
+                st.error("No se puede realizar el análisis: el modelo YOLO no se cargó correctamente.")
             else:
                 try:
-                    results = model(image)
+                    results = model(image)  # Analizar imagen con YOLO
                     pred = results[0]
-
                     if hasattr(pred, 'probs'):
+
+                        # Obtener clase y confianza
                         predicted_class_index = pred.probs.top1
                         confidence = pred.probs.top1conf.item() * 100
                         diagnosis = class_names[predicted_class_index]
 
+                        # Mostrar resultados
                         col1, col2 = st.columns(2)
                         with col1:
-                            st.markdown(f'<p style="color:#343a40; font-size: 3.5em; font-weight: bold; margin: 0; text-align: center;">{diagnosis}</p>', unsafe_allow_html=True)
-                            st.markdown(f'<p style="color:#6c757d; font-size: 1em; margin: 0; text-align: center;">Grado de fibrosis</p>', unsafe_allow_html=True)
+                            st.markdown(f'<p style="color:#343a40; font-size: 3.5em; font-weight: bold; text-align: center;">{diagnosis}</p>', unsafe_allow_html=True)
+                            st.markdown('<p style="color:#6c757d; font-size: 1em; text-align: center;">Grado de fibrosis</p>', unsafe_allow_html=True)
                         with col2:
-                            st.markdown(f'<p style="color:#343a40; font-size: 3.5em; font-weight: bold; margin: 0; text-align: center;">{confidence:.2f}%</p>', unsafe_allow_html=True)
-                            st.markdown(f'<p style="color:#6c757d; font-size: 1em; margin: 0; text-align: center;">Puntuación de confianza</p>', unsafe_allow_html=True)
+                            st.markdown(f'<p style="color:#343a40; font-size: 3.5em; font-weight: bold; text-align: center;">{confidence:.2f}%</p>', unsafe_allow_html=True)
+                            st.markdown('<p style="color:#6c757d; font-size: 1em; text-align: center;">Puntuación de confianza</p>', unsafe_allow_html=True)
 
+                        # Mensajes según diagnostico
                         st.markdown("<hr style='border: 1px solid #E9ECEF; margin: 20px 0;'>", unsafe_allow_html=True) 
                         if diagnosis in ['F0', 'F1']:
                             st.success(f"**{diagnosis}** indica un riesgo bajo o nulo de fibrosis avanzada.")
@@ -214,15 +186,9 @@ if uploaded_file is not None:
                             st.error(f"**F4 (Cirrosis)**: Atención médica inmediata recomendada.")
                     else:
                         st.warning("El modelo no devolvió un resultado de clasificación válido.")
-
                 except Exception as e:
                     st.error(f"Error al procesar la imagen: {e}")
 
-# ------------------------------
 # PIE DE PÁGINA
-# ------------------------------
-st.markdown("""
-    <div class="footer">
-        Este es un análisis generado por IA. Consulte siempre con profesionales de la salud calificados.
-    </div>
-""", unsafe_allow_html=True)
+
+st.markdown('<div class="footer">Análisis generado por Inteligencia Artificial.</div>', unsafe_allow_html=True)
