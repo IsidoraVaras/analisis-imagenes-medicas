@@ -101,21 +101,22 @@ clip_model, clip_preprocess = load_clip_model()
 
 # FUNCION PARA DETERMINAR SI ES ECOGRAFIA
 
+# Funcion que indica si es una ecografia. Devuelve False o True
 def is_ultrasound_image(image: Image.Image) -> bool:
     if image.mode != "RGB":
-        image = image.convert("RGB")
-    image_input = clip_preprocess(image).unsqueeze(0)
+        image = image.convert("RGB")    # Tranformar a RGB cuando no lo es.
+    image_input = clip_preprocess(image).unsqueeze(0) #Preprocesa imagen para CLIP.
     text_prompts = [
         "an ultrasound image", "a liver ultrasound", "a medical scan", "a radiology image",
         "a cat", "a person", "a dog", "a landscape", "a normal photo"
     ]
     text_tokens = clip.tokenize(text_prompts)
     with torch.no_grad():
-        image_features = clip_model.encode_image(image_input)
-        text_features = clip_model.encode_text(text_tokens)
-        similarities = (image_features @ text_features.T).softmax(dim=-1)
+        image_features = clip_model.encode_image(image_input) #Extrae caracteristicas de imagen
+        text_features = clip_model.encode_text(text_tokens)   #Extrae caracteristicas de texto
+        similarities = (image_features @ text_features.T).softmax(dim=-1)  #Calcula similitud
         best_match = torch.argmax(similarities, dim=-1).item()
-    return best_match in [0, 1, 2, 3]
+    return best_match in [0, 1, 2, 3] #Devuelve True si parece ecografia
 
 # CARGAR MODELO YOLO
 
